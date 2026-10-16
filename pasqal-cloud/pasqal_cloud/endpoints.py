@@ -110,6 +110,8 @@ PREPROD_SA_KEYCLOAK_BASE_URL = "https://auth.preprod.sa.pasqal.cloud/"
 PREPROD_SA_KEYCLOAK_TOKEN_ENDPOINT = "https://auth.preprod.sa.pasqal.cloud/realms/pasqal-cloud/protocol/openid-connect/token"
 
 KEYCLOAK_SDK_CLIENT_ID = "cloud-sdk"
+# Public client for interactive logins (PKCE, device) and ROPG, subject to MFA.
+KEYCLOAK_LOGIN_CLIENT_ID = "pasqal-cloud-python"
 KEYCLOAK_REALM = "pasqal-cloud"
 
 
@@ -283,8 +285,8 @@ class DeploymentConf(BaseModel):
 
 # Prod defaults, one built-in profile per region. Other environments are user
 # config profiles, see `pasqal_cloud.settings`.
-# TODO: replace client IDs with the new Auth0 Native / Keycloak public clients
-# once they are created.
+# TODO: replace Auth0 client IDs with the new Native app of each tenant once
+# they are created.
 DEPLOYMENTS: dict[Region, DeploymentConf] = {
     "fr": DeploymentConf(
         issuer=f"https://{AUTH0_DOMAIN}/",
@@ -295,7 +297,7 @@ DEPLOYMENTS: dict[Region, DeploymentConf] = {
     ),
     "sa": DeploymentConf(
         issuer=f"{SA_KEYCLOAK_BASE_URL}/realms/{KEYCLOAK_REALM}",
-        client_id=KEYCLOAK_SDK_CLIENT_ID,
+        client_id=KEYCLOAK_LOGIN_CLIENT_ID,
         audience=AUDIENCE,
         core_url=KSA_CORE_API_URL,
         account_url=KSA_ACCOUNT_API_URL,

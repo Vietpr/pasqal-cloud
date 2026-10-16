@@ -132,11 +132,22 @@ def resolve_profile_name(config: Config, profile: str | None = None) -> str:
     """Resolve the profile from the explicit argument, then $PASQAL_CLOUD_PROFILE,
     then the config active profile, then `default-fr`.
     """
-    return (
-        profile
-        or os.environ.get("PASQAL_CLOUD_PROFILE")
-        or config.active_profile
-        or DEFAULT_PROFILE
+    return resolve_profile_source(config, profile)[0]
+
+
+def resolve_profile_source(
+    config: Config, profile: str | None = None
+) -> tuple[str, str]:
+    """`resolve_profile_name` and where the profile comes from."""
+    candidates = (
+        (profile, "--profile"),
+        (os.environ.get("PASQAL_CLOUD_PROFILE"), "PASQAL_CLOUD_PROFILE"),
+        (config.active_profile, "active profile"),
+    )
+
+    return next(
+        ((name, source) for name, source in candidates if name),
+        (DEFAULT_PROFILE, "default"),
     )
 
 

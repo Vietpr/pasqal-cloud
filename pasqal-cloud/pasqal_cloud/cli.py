@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from datetime import datetime
 
+from pasqal_cloud import token_cache
 from pasqal_cloud.endpoints import check_url, DeploymentConf, URL_KEYS
 from pasqal_cloud.settings import (
     activate_profile,
@@ -33,6 +36,7 @@ from pasqal_cloud.settings import (
     profile_names,
     resolve_pasqal_cloud_target,
     resolve_profile_name,
+    resolve_profile_source,
     save_config,
 )
 
@@ -44,10 +48,58 @@ def login(args: argparse.Namespace, config: Config) -> int:
     return 1
 
 
+def _duration(seconds: float) -> str:
+    for unit, size in (("day", 86400), ("h", 3600), ("min", 60)):
+        if seconds >= size:
+            count = int(seconds // size)
+            return f"{count} {unit}{'s' if unit == 'day' and count > 1 else ''}"
+    return "less than 1 min"
+
+
+def _format_expiry(timestamp: int | None) -> str:
+    if timestamp is None:
+        return "expiry unknown"  # Auth0 does not return the refresh token lifetime
+    text = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+    delta = timestamp - time.time()
+    if delta > 0:
+        return f"expires {text} (in {_duration(delta)})"
+    return f"expired {text} ({_duration(-delta)} ago)"
+
+
 def auth_status(args: argparse.Namespace, config: Config) -> int:
+    """Offline: list the cached logins, never printing token material."""
     target = resolve_pasqal_cloud_target(args.profile, config)
-    sys.stderr.write(f"auth status ({target.profile}): not implemented\n")
-    return 1
+    _, profile_from = resolve_profile_source(config, args.profile)
+    sys.stdout.write(
+        f"Cache file: {token_cache.cache_path()}\n"
+        f"Profile:    {target.profile} (from {profile_from})\n"
+        f"Issuer:     {target.deployment.issuer}\n"
+    )
+
+    try:
+        entries = token_cache.read_entries()
+    except token_cache.TokenCacheError as e:
+        sys.stderr.write(f"Error: {e}\n")
+        return 1
+
+    active = entries.get(target.profile)
+    active_found = active is not None and active.matches(target.deployment)
+    for key, entry in sorted(entries.items()):
+        is_active = active_found and key == target.profile
+        user = entry.id_claims.get("email") or entry.id_claims.get("sub", "unknown")
+        sys.stdout.write(
+            f"\n{'*' if is_active else ' '} {key}"
+            f"{' (active)' if is_active else ''}\n"
+            f"    Issuer:         {entry.issuer}\n"
+            f"    User:           {user}\n"
+            f"    Client:         {entry.client_id}\n"
+            f"    Access token:   {_format_expiry(entry.expires_at)}\n"
+            f"    Refresh token:  {_format_expiry(entry.refresh_expires_at)}\n"
+        )
+
+    if not active_found:
+        sys.stderr.write(f"Not logged in to {target.profile}\n")
+    return 0 if active_found else 1
 
 
 def logout(args: argparse.Namespace, config: Config) -> int:

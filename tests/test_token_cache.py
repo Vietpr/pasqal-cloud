@@ -208,5 +208,5 @@ def test_save_login_writes_entry():
     from pasqal_cloud.settings import resolve_pasqal_cloud_target
 
     tokens = {"refresh_token": "R", "access_token": "A", "expires_in": 60}
-    entry = _save_login(resolve_pasqal_cloud_target(), {}, tokens)
+    entry = _save_login(resolve_pasqal_cloud_target(), tokens)
     assert token_cache.read_entries() == {entry.profile: entry}

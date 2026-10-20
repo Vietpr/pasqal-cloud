@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import BaseModel, TypeAdapter
 
 from pasqal_cloud.endpoints import DeploymentConf
-from pasqal_cloud.settings import write_private_file
+from pasqal_cloud.settings import PasqalCloudTarget, write_private_file
 
 
 class TokenCacheError(Exception):
@@ -66,6 +66,17 @@ def cache_path() -> Path:
     return cache_dir() / "cloud-credentials.json"
 
 
+def entry_for(
+    entries: dict[str, CacheEntry], target: PasqalCloudTarget
+) -> CacheEntry | None:
+    """The login of `target`, None if missing or made for another deployment."""
+    entry = entries.get(target.profile)
+    if entry is None or not entry.matches(target.deployment):
+        return None
+
+    return entry
+
+
 def read_entries() -> dict[str, CacheEntry]:
     """Return the cached entries by key, empty if there is no cache file.
 
@@ -97,7 +108,9 @@ def read_entries() -> dict[str, CacheEntry]:
                 if entry.profile != key:
                     raise ValueError(f"{key}: entry is for {entry.profile}")
         except ValueError as e:  # pydantic's ValidationError is a ValueError
-            raise TokenCacheError(f"{path} is not a valid cache file: {e}") from e
+            raise TokenCacheError(
+                f"{path} is not a valid cache file: {e}. Delete it and log in again"
+            ) from e
 
     return entries
 

@@ -21,7 +21,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from pasqal_cloud import browser_login, oidc, token_cache
+from pasqal_cloud import browser_login, device_login, oidc, token_cache
 from pasqal_cloud.endpoints import check_url, DeploymentConf, URL_KEYS
 from pasqal_cloud.settings import (
     activate_profile,
@@ -103,18 +103,22 @@ def _revoke_previous(target: PasqalCloudTarget, discovery: dict[str, Any]) -> No
 
 def login(args: argparse.Namespace, config: Config) -> int:
     target = resolve_pasqal_cloud_target(args.profile, config)
-    if args.device:
-        sys.stderr.write("login --device: not implemented\n")
-        return 1
+    flow = device_login if args.device else browser_login
+
     try:
         discovery = oidc.discover(target.deployment.issuer)
+        if args.device and "device_authorization_endpoint" not in discovery:
+            raise oidc.LoginError("Device flow not enabled for this environment")
+
         _revoke_previous(target, discovery)
-        entry = _save_login(target, browser_login.login(target.deployment, discovery))
+        entry = _save_login(target, flow.login(target.deployment, discovery))
+
     # A rejected cache file fails the login before the browser opens: it is
     # never overwritten, it may already have leaked.
     except (oidc.LoginError, oidc.OIDCError, token_cache.TokenCacheError, OSError) as e:
         sys.stderr.write(f"Error: {e}\n")
         return 1
+
     sys.stderr.write(f"Logged in to {target.profile} as {_user(entry)}\n")
     return 0
 

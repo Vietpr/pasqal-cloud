@@ -16,8 +16,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+import socket
 import stat
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +30,10 @@ from pydantic import BaseModel, TypeAdapter
 
 from pasqal_cloud.endpoints import DeploymentConf
 from pasqal_cloud.settings import PasqalCloudTarget, write_private_file
+
+# Seconds after which a lock is considered abandoned and taken over: well
+# above the worst case of the network calls made under it.
+LOCK_STALE_AFTER = 180
 
 
 class TokenCacheError(Exception):
@@ -66,6 +75,10 @@ def cache_path() -> Path:
     return cache_dir() / "cloud-credentials.json"
 
 
+def lock_path() -> Path:
+    return cache_path().with_name(cache_path().name + ".lock")
+
+
 def entry_for(
     entries: dict[str, CacheEntry], target: PasqalCloudTarget
 ) -> CacheEntry | None:
@@ -84,10 +97,12 @@ def read_entries() -> dict[str, CacheEntry]:
     current user, or unreadable. It is never repaired: it may already have leaked.
     """
     path = cache_path()
+
     try:
         f = open(path, encoding="utf-8")
     except FileNotFoundError:
         return {}
+
     with f:
         st = os.fstat(f.fileno())
         # POSIX only, Windows has no uid/mode bits to check.
@@ -102,6 +117,7 @@ def read_entries() -> dict[str, CacheEntry]:
                     "to use it. If no one else could have read it, run: "
                     f"chmod 600 {path}"
                 )
+
         try:
             entries = _ENTRIES.validate_json(f.read())
             for key, entry in entries.items():
@@ -115,8 +131,55 @@ def read_entries() -> dict[str, CacheEntry]:
     return entries
 
 
+@contextmanager
+def lock() -> Iterator[None]:
+    """Hold the cache lock file, to wrap every read-modify-write of the cache.
+
+    `O_CREAT | O_EXCL` is atomic on local disks and NFS, so the lock also works
+    across hosts. A lock older than LOCK_STALE_AFTER (by its mtime, set by the
+    file server) is taken over; two processes taking over the same stale lock
+    at once can both get it, accepted given how rare an abandoned lock is.
+    """
+    path = lock_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            break
+        except FileExistsError:
+            pass
+
+        try:
+            age = time.time() - path.stat().st_mtime
+        except FileNotFoundError:
+            continue  # released meanwhile
+
+        if age > LOCK_STALE_AFTER:
+            path.unlink(missing_ok=True)
+        else:
+            time.sleep(0.1)
+
+    try:
+        # For whoever finds a stuck lock: who holds it, since when.
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "host": socket.gethostname(),
+                    "pid": os.getpid(),
+                    "timestamp": int(time.time()),
+                },
+                f,
+            )
+        yield
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def write_entries(entries: dict[str, CacheEntry]) -> None:
     """Atomically replace the cache file, readable by the current user only.
+
+    Call it under lock(), after reading the entries in the same lock.
 
     The file is deleted when no entry is left.
     """

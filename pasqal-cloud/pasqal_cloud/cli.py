@@ -71,9 +71,10 @@ def _save_login(
         )
     except (KeyError, TypeError, ValueError) as e:
         raise oidc.LoginError(f"Invalid token response: {e!r}") from e
-    entries = token_cache.read_entries()
-    previous = entries.get(entry.profile)
-    token_cache.write_entries({**entries, entry.profile: entry})
+    with token_cache.lock():
+        entries = token_cache.read_entries()
+        previous = entries.get(entry.profile)
+        token_cache.write_entries({**entries, entry.profile: entry})
     if previous and previous.id_claims.get("sub") != entry.id_claims.get("sub"):
         sys.stderr.write(
             f"Note: replaced the login of {_user(previous)} with {_user(entry)}\n"
@@ -83,6 +84,23 @@ def _save_login(
 
 def _user(entry: token_cache.CacheEntry) -> str:
     return str(entry.id_claims.get("email") or entry.id_claims.get("sub", "unknown"))
+
+
+def _revoke(
+    entry: token_cache.CacheEntry, discovery: dict[str, Any] | None = None
+) -> None:
+    """Best effort revocation of the entry's refresh token, warn on failure.
+
+    Discovers the entry's issuer when `discovery` is not given: a discovery
+    failure only skips the revocation.
+    """
+    try:
+        discovery = discovery or oidc.discover(entry.issuer)
+        oidc.revoke(discovery, entry.client_id, entry.refresh_token)
+    except oidc.OIDCError as e:
+        sys.stderr.write(
+            f"Warning: could not revoke the login of {entry.profile}: {e}\n"
+        )
 
 
 def _revoke_previous(target: PasqalCloudTarget, discovery: dict[str, Any]) -> None:
@@ -95,10 +113,7 @@ def _revoke_previous(target: PasqalCloudTarget, discovery: dict[str, Any]) -> No
     previous = token_cache.entry_for(token_cache.read_entries(), target)
     if previous is None:
         return  # missing, or issued by another client: cannot be revoked here
-    try:
-        oidc.revoke(discovery, previous.client_id, previous.refresh_token)
-    except oidc.OIDCError as e:
-        sys.stderr.write(f"Warning: could not revoke the previous login: {e}\n")
+    _revoke(previous, discovery)
 
 
 def login(args: argparse.Namespace, config: Config) -> int:
@@ -142,6 +157,7 @@ def auth_status(args: argparse.Namespace, config: Config) -> int:
     """Offline: list the cached logins, never printing token material."""
     target = resolve_pasqal_cloud_target(args.profile, config)
     _, profile_from = resolve_profile_source(config, args.profile)
+
     sys.stdout.write(
         f"Cache file: {token_cache.cache_path()}\n"
         f"Profile:    {target.profile} (from {profile_from})\n"
@@ -154,8 +170,8 @@ def auth_status(args: argparse.Namespace, config: Config) -> int:
         sys.stderr.write(f"Error: {e}\n")
         return 1
 
-    active = entries.get(target.profile)
-    active_found = active is not None and active.matches(target.deployment)
+    active_found = token_cache.entry_for(entries, target) is not None
+
     for key, entry in sorted(entries.items()):
         is_active = active_found and key == target.profile
         sys.stdout.write(
@@ -170,13 +186,37 @@ def auth_status(args: argparse.Namespace, config: Config) -> int:
 
     if not active_found:
         sys.stderr.write(f"Not logged in to {target.profile}\n")
+
     return 0 if active_found else 1
 
 
 def logout(args: argparse.Namespace, config: Config) -> int:
-    target = resolve_pasqal_cloud_target(args.profile, config)
-    sys.stderr.write(f"logout ({target.profile}): not implemented\n")
-    return 1
+    """Never interactive: logs out of the profile's entry.
+
+    Only the profile name is resolved, not the target: an entry stays removable
+    after its profile is gone from the config.
+    """
+    profile = resolve_profile_name(config, args.profile)
+
+    try:
+        with token_cache.lock():
+            entries = token_cache.read_entries()
+            entry = entries.pop(profile, None)
+            if entry is None:
+                sys.stderr.write(f"Not logged in to {profile}\n")
+                return 0
+
+            # Even an entry for another client than the deployment is revoked,
+            # with the issuer and client it was issued by.
+            _revoke(entry)
+            token_cache.write_entries(entries)
+
+    except (token_cache.TokenCacheError, OSError) as e:
+        sys.stderr.write(f"Error: {e}\n")
+        return 1
+
+    sys.stderr.write(f"Logged out of {profile} ({_user(entry)})\n")
+    return 0
 
 
 def profile_show(args: argparse.Namespace, config: Config) -> int:

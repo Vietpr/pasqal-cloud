@@ -108,10 +108,6 @@ class PasqalCloudClient:
         """
         This class provides helper methods to call the Pasqal Cloud endpoints.
 
-        To authenticate to Pasqal Cloud, you have to provide either an
-        email/password combination or a TokenProvider instance.
-        You may omit the password, you will then be prompted to enter one.
-
         The target deployment is the `pasqal-cloud` config profile
         ($PASQAL_CLOUD_PROFILE, else the active one). Without one, `region`
         selects the prod deployment of that region (default: fr).

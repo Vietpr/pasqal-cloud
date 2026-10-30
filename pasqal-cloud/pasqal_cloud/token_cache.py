@@ -28,6 +28,7 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter
 
+from pasqal_cloud import oidc
 from pasqal_cloud.endpoints import DeploymentConf
 from pasqal_cloud.settings import PasqalCloudTarget, write_private_file
 
@@ -61,6 +62,50 @@ class CacheEntry(BaseModel):
         return (self.issuer, self.client_id) == (
             deployment.issuer,
             deployment.client_id,
+        )
+
+    @classmethod
+    def from_tokens(
+        cls, target: PasqalCloudTarget, tokens: dict[str, Any]
+    ) -> CacheEntry:
+        """A new entry of `target` holding the tokens of a token endpoint response.
+
+        Raises KeyError, TypeError, ValueError or OIDCError on an invalid response.
+        """
+        empty = cls(
+            profile=target.profile,
+            issuer=target.deployment.issuer,
+            client_id=target.deployment.client_id,
+            refresh_token="",
+            access_token="",
+            expires_at=0,
+        )
+        return empty.updated(tokens)
+
+    def updated(self, tokens: dict[str, Any]) -> CacheEntry:
+        """Return a copy holding the tokens of a token endpoint response.
+
+        The refresh token and id claims are kept when the response has none.
+        Raises KeyError, TypeError, ValueError or OIDCError on an invalid response.
+        """
+        now = int(time.time())
+        return self.model_copy(
+            update={
+                "access_token": str(tokens["access_token"]),
+                "expires_at": now + int(tokens["expires_in"]),
+                "refresh_token": str(tokens.get("refresh_token", self.refresh_token)),
+                "scope": str(tokens.get("scope", self.scope)),
+                "refresh_expires_at": (
+                    now + int(tokens["refresh_expires_in"])
+                    if tokens.get("refresh_expires_in")  # Keycloak: 0 means no expiry
+                    else None
+                ),
+                "id_claims": (
+                    oidc.id_claims(tokens["id_token"])
+                    if "id_token" in tokens
+                    else self.id_claims
+                ),
+            }
         )
 
 

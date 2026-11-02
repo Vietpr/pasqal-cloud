@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 import requests_mock
-from pasqal_cloud import Batch, Job, Workload
+from pasqal_cloud import Batch, Job, settings, Workload
+from pasqal_cloud.endpoints import AUTH_CONFIG, Endpoints
 from pasqal_cloud.http_client import HTTPClient
-from pasqal_cloud.endpoints import Endpoints
 from requests import HTTPError, Request
 
 from tests.test_doubles.authentication import FakeAuth0AuthenticationSuccess
@@ -16,6 +16,24 @@ from tests.test_doubles.authentication import FakeAuth0AuthenticationSuccess
 RESULT_LINK_ENDPOINT = "http://result-link/"
 JOB_RESULT_LINK_ENDPOINT = "http://jobs-result-link/"
 JSON_FILE = "_.{}.json"
+
+
+# The SDK reads the login cache and config in ~/.pasqal and $PASQAL_CLOUD_PROFILE:
+# never use the developer's ones.
+@pytest.fixture(autouse=True)
+def _home(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(settings, "CONFIG_PATH", tmp_path / ".pasqal" / "config.json")
+    monkeypatch.delenv("PASQAL_CLOUD_PROFILE", raising=False)
+
+
+# The password login discovers the token endpoint: keep it off the network.
+@pytest.fixture(autouse=True)
+def _password_grant_config(monkeypatch):
+    monkeypatch.setattr(
+        "pasqal_cloud.http_client.password_grant_config",
+        lambda _target: AUTH_CONFIG["fr-prod"],
+    )
 
 
 @pytest.fixture

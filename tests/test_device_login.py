@@ -4,7 +4,7 @@ from urllib.parse import parse_qs
 
 import jwt
 import pytest
-from pasqal_cloud import cli, device_login, settings, token_cache
+from pasqal_cloud import cli, device_login, token_cache
 from pasqal_cloud.endpoints import DEPLOYMENTS
 
 DEPLOYMENT = DEPLOYMENTS["fr"]
@@ -46,13 +46,6 @@ class FakeClock:
     def sleep(self, seconds):
         self.sleeps.append(seconds)
         self.now += seconds
-
-
-@pytest.fixture(autouse=True)
-def _home(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(settings, "CONFIG_PATH", tmp_path / ".pasqal" / "config.json")
-    monkeypatch.delenv("PASQAL_CLOUD_PROFILE", raising=False)
 
 
 @pytest.fixture

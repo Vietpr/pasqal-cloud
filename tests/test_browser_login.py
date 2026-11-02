@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import jwt
 import pytest
-from pasqal_cloud import browser_login, cli, settings, token_cache
+from pasqal_cloud import browser_login, cli, token_cache
 from pasqal_cloud.endpoints import DEPLOYMENTS
 
 DEPLOYMENT = DEPLOYMENTS["fr"]
@@ -30,13 +30,6 @@ def tokens(email="alice@example.com", refresh="REFRESH-1"):
         "scope": "openid offline_access",
         "id_token": jwt.encode(claims, "x" * 32, "HS256"),
     }
-
-
-@pytest.fixture(autouse=True)
-def _home(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(settings, "CONFIG_PATH", tmp_path / ".pasqal" / "config.json")
-    monkeypatch.delenv("PASQAL_CLOUD_PROFILE", raising=False)
 
 
 @pytest.fixture

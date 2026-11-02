@@ -39,12 +39,13 @@ from __future__ import annotations
 
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, field_validator, ValidationError
 
-from pasqal_cloud.endpoints import DeploymentConf, DEPLOYMENTS, REGIONS
+from pasqal_cloud.endpoints import DeploymentConf, DEPLOYMENTS, Region, REGIONS
 
 CONFIG_PATH = Path.home() / ".pasqal" / "config.json"
 
@@ -195,10 +196,29 @@ def delete_profile(config: Config, name: str) -> None:
 
 
 def resolve_pasqal_cloud_target(
-    profile: str | None = None, config: Config | None = None
+    profile: str | None = None,
+    config: Config | None = None,
+    region: Region | None = None,
 ) -> PasqalCloudTarget:
     """Resolve the profile (see `resolve_profile_name`) to its deployment.
-    Raises ValueError on an unknown profile or an invalid config."""
+
+    Without a chosen profile, `region` selects the `default-<region>` one.
+    With a chosen profile, the profile wins and `region` is ignored with a
+    warning.
+
+    Raises ValueError on an unknown profile or region or an invalid config."""
+    if region is not None and region not in REGIONS:
+        raise ValueError(f"Unknown region {region!r}, expected one of: {REGIONS}")
+
     config = load_config() if config is None else config
-    name = resolve_profile_name(config, profile)
+    name, source = resolve_profile_source(config, profile)
+    if region is not None and source == "default":
+        name = f"default-{region}"
+    elif region is not None:
+        warnings.warn(
+            f"region={region!r} is ignored: the {name!r} profile (from {source})"
+            " selects the deployment",
+            stacklevel=2,
+        )
+
     return PasqalCloudTarget(name, get_deployment(config, name))

@@ -27,10 +27,17 @@ from requests.auth import AuthBase
 from pasqal_cloud._version import __version__ as sdk_version
 from pasqal_cloud.authentication import (
     HTTPBearerAuthenticator,
+    password_grant_config,
     PasswordGrantTokenProvider,
     TokenProvider,
 )
-from pasqal_cloud.endpoints import Auth0Conf, Endpoints, Region, TokenProviderConf
+from pasqal_cloud.endpoints import (
+    Auth0Conf,
+    Endpoints,
+    Region,
+    TokenProviderConf,
+)
+from pasqal_cloud.settings import PasqalCloudTarget, resolve_pasqal_cloud_target
 from pasqal_cloud.utils.filters import (
     BatchFilters,
     CancelJobFilters,
@@ -68,7 +75,8 @@ class HTTPClient:
         auth_config: Optional[TokenProviderConf] = None,
         region: Optional[Region] = None,
     ):
-        self.endpoints = self._make_endpoints(endpoints, region)
+        self.target = resolve_pasqal_cloud_target(region=region)
+        self.endpoints = self._make_endpoints(endpoints, self.target)
         self._project_id = project_id
         self.user_agent = f"PasqalCloudSDK/{sdk_version}"
 
@@ -91,7 +99,7 @@ class HTTPClient:
                 auth_config = TokenProviderConf.from_auth0_config(auth0)
 
             if auth_config is None:
-                auth_config = TokenProviderConf.from_region(region)
+                auth_config = password_grant_config(self.target)
 
             token_provider = self._credential_login(username, password, auth_config)
 
@@ -185,10 +193,11 @@ class HTTPClient:
 
     @staticmethod
     def _make_endpoints(
-        endpoints: Optional[Endpoints], region: Optional[Region] = None
+        endpoints: Optional[Endpoints], target: PasqalCloudTarget
     ) -> Endpoints:
         if endpoints is None:
-            return Endpoints.from_region(region)
+            deployment = target.deployment
+            return Endpoints(core=deployment.core_url, account=deployment.account_url)
         if not isinstance(endpoints, Endpoints):
             raise TypeError(f"endpoints must be a {Endpoints.__name__} instance")
 

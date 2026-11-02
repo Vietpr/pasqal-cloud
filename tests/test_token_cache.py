@@ -9,13 +9,6 @@ from pasqal_cloud.cli import _format_expiry, main
 from pasqal_cloud.endpoints import DEPLOYMENTS
 
 
-@pytest.fixture(autouse=True)
-def _home(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(settings, "CONFIG_PATH", tmp_path / ".pasqal" / "config.json")
-    monkeypatch.delenv("PASQAL_CLOUD_PROFILE", raising=False)
-
-
 def make_entry(region="fr", profile="default-fr", email="alice@example.com"):
     deployment = DEPLOYMENTS[region]
     return token_cache.CacheEntry(

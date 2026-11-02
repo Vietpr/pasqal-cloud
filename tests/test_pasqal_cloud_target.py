@@ -51,6 +51,28 @@ def test_builtin_profile_per_region(region):
     assert target.deployment == DEPLOYMENTS[region]
 
 
+@pytest.mark.parametrize("region", REGIONS)
+def test_region_selects_builtin_profile_without_chosen_profile(region):
+    target = resolve_pasqal_cloud_target(region=region)
+    assert target.profile == f"default-{region}"
+    assert target.deployment == DEPLOYMENTS[region]
+
+
+def test_chosen_profile_wins_over_region(monkeypatch):
+    config = Config.model_validate({"profiles": {"dev": deployment("dev")}})
+    with pytest.warns(UserWarning, match="region='sa' is ignored: the 'dev' profile"):
+        assert resolve_pasqal_cloud_target("dev", config, "sa").profile == "dev"
+
+    monkeypatch.setenv("PASQAL_CLOUD_PROFILE", "dev")
+    with pytest.warns(UserWarning, match="'dev' profile .from PASQAL_CLOUD_PROFILE"):
+        assert resolve_pasqal_cloud_target(config=config, region="fr").profile == "dev"
+
+
+def test_unknown_region_raises():
+    with pytest.raises(ValueError, match="Unknown region 'us'"):
+        resolve_pasqal_cloud_target(region="us")  # type: ignore[arg-type]
+
+
 def test_named_profile_uses_its_values():
     config = Config.model_validate({"profiles": {"dev": deployment("dev")}})
     target = resolve_pasqal_cloud_target("dev", config)

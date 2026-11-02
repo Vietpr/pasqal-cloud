@@ -5,7 +5,7 @@ import time
 from urllib.parse import parse_qs
 
 import pytest
-from pasqal_cloud import cli, settings, token_cache
+from pasqal_cloud import cli, token_cache
 from pasqal_cloud.endpoints import DEPLOYMENTS
 
 from tests.test_token_cache import write
@@ -21,13 +21,6 @@ def config(issuer):
         "revocation_endpoint": f"{issuer}/revoke",
         "scopes_supported": ["openid", "offline_access"],
     }
-
-
-@pytest.fixture(autouse=True)
-def _home(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr(settings, "CONFIG_PATH", tmp_path / ".pasqal" / "config.json")
-    monkeypatch.delenv("PASQAL_CLOUD_PROFILE", raising=False)
 
 
 @pytest.fixture
